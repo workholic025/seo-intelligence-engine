@@ -1,0 +1,124 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: seo_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-seo_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-StrongLocalPassword123!}
+      POSTGRES_DB: ${POSTGRES_DB:-seo_intelligence}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - seo_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-seo_admin} -d ${POSTGRES_DB:-seo_intelligence}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: seo_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1
+    volumes:
+      - redis_data:/data
+    networks:
+      - seo_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: seo_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-seo_admin}:${POSTGRES_PASSWORD:-StrongLocalPassword123!}@postgres:5432/${POSTGRES_DB:-seo_intelligence}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ml_models:/app/ml_models
+    networks:
+      - seo_internal
+    command: bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: seo_celery_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-seo_admin}:${POSTGRES_PASSWORD:-StrongLocalPassword123!}@postgres:5432/${POSTGRES_DB:-seo_intelligence}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ml_models:/app/ml_models
+    networks:
+      - seo_internal
+    command: >
+      celery -A app.workers.celery_app worker
+      --loglevel=info
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
+      -Q crawl_scheduling,backlink_verification,ml_analysis,ai_analysis
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: seo_celery_beat
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-seo_admin}:${POSTGRES_PASSWORD:-StrongLocalPassword123!}@postgres:5432/${POSTGRES_DB:-seo_intelligence}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - celery_worker
+    networks:
+      - seo_internal
+    command: celery -A app.workers.celery_app beat --loglevel=info
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: seo_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    networks:
+      - seo_internal
+    depends_on:
+      - backend
+
+networks:
+  seo_internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ml_models:
+    driver: local

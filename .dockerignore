@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Secrets
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# ML artifacts (large binary files, stored in Docker volume instead)
+backend/ml_models/
+*.joblib
+*.pkl
+*.h5
+
+# Frontend build inputs that get rebuilt inside the container
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Test / coverage artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Alembic runtime
+migrations/__pycache__/
+
+# Logs
+*.log
